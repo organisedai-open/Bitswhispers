@@ -681,7 +681,7 @@ export default function ChatArea({ channel, username, sessionId }: ChatAreaProps
     } catch (error: any) {
       // Only log meaningful errors (not network hiccups)
       if (error?.code !== 'unavailable' && error?.code !== 'deadline-exceeded') {
-        console.error('Error sending message:', error);
+      console.error('Error sending message:', error);
         if (process.env.NODE_ENV === 'development') {
           console.error('Channel:', channel);
           console.error('Is location channel:', channel !== 'general' && channel !== 'confessions' && channel !== 'support');
