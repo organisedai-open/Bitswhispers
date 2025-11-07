@@ -180,6 +180,12 @@ export default function ChatArea({ channel, username, sessionId }: ChatAreaProps
   const skipAutoScrollRef = useRef<boolean>(false);
   // Track whether the next onSnapshot emission is the initial load
   const isInitialSnapshotRef = useRef<boolean>(true);
+  // Track scroll position restoration for load more
+  const scrollRestoreRef = useRef<{
+    scrollTop: number;
+    scrollHeight: number;
+    firstVisibleMessageId: string | null;
+  } | null>(null);
 
   // Scroll event: show Load More only when scrolled to top
   useEffect(() => {
@@ -207,6 +213,18 @@ export default function ChatArea({ channel, username, sessionId }: ChatAreaProps
     }
     setIsLoading(true);
     skipAutoScrollRef.current = true;
+    
+    // Save current scroll position and the first visible message element
+    const messageList = messageListRef.current;
+    if (!messageList) {
+      setIsLoading(false);
+      skipAutoScrollRef.current = false;
+      return;
+    }
+    
+    const scrollTop = messageList.scrollTop;
+    const scrollHeight = messageList.scrollHeight;
+    const firstVisibleMessageId = messages.length > 0 ? messages[0].id : null;
     
     // Get the correct Firestore and Auth instances for this channel
     const channelDb = getFirestoreForChannel(channel);
@@ -288,10 +306,17 @@ export default function ChatArea({ channel, username, sessionId }: ChatAreaProps
           };
         });
       items = items.reverse(); // so the oldest messages get prepended in the correct order
+      // Save scroll restoration data before updating messages
+      scrollRestoreRef.current = {
+        scrollTop,
+        scrollHeight,
+        firstVisibleMessageId,
+      };
       setMessages((prev) => {
         const existingIds = new Set(prev.map((msg) => msg.id));
         return [...items.filter((msg) => !existingIds.has(msg.id)), ...prev];
       });
+      
       if (snap.docs.length > 0) {
         setOldestDoc(snap.docs[snap.docs.length - 1]);
         setHasMore(snap.docs.length === 25);
@@ -614,6 +639,43 @@ export default function ChatArea({ channel, username, sessionId }: ChatAreaProps
     };
     // eslint-disable-next-line
   }, [channel]);
+
+  // Restore scroll position after loading more messages
+  useEffect(() => {
+    if (scrollRestoreRef.current && messageListRef.current) {
+      const restore = scrollRestoreRef.current;
+      const messageList = messageListRef.current;
+      
+      // Use requestAnimationFrame to ensure DOM has updated
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          if (restore.firstVisibleMessageId) {
+            // Find the previously first visible message in the new DOM
+            const previousFirstMessage = messageRefs.current[restore.firstVisibleMessageId];
+            if (previousFirstMessage && messageList) {
+              // Calculate the offset from the top of the scroll container
+              const messageOffset = previousFirstMessage.offsetTop - messageList.offsetTop;
+              // Set scroll position to maintain the same view
+              messageList.scrollTop = messageOffset;
+            } else if (messageList) {
+              // Fallback: maintain scroll position relative to scroll height
+              const newScrollHeight = messageList.scrollHeight;
+              const heightDifference = newScrollHeight - restore.scrollHeight;
+              messageList.scrollTop = restore.scrollTop + heightDifference;
+            }
+          } else if (messageList) {
+            // Fallback: maintain scroll position relative to scroll height
+            const newScrollHeight = messageList.scrollHeight;
+            const heightDifference = newScrollHeight - restore.scrollHeight;
+            messageList.scrollTop = restore.scrollTop + heightDifference;
+          }
+          
+          // Clear the restore ref after restoring
+          scrollRestoreRef.current = null;
+        });
+      });
+    }
+  }, [messages]);
 
   useEffect(() => {
     if (messages.length > 0 && !skipAutoScrollRef.current) {
